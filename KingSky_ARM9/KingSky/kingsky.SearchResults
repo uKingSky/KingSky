@@ -1,0 +1,9 @@
+---- HandleSWI Matches (2 in 1 files) ----
+2440init.s (s3c2440\source):166
+HandlerSWI	HANDLER HandleSWI
+HandlerDabort	HANDLER HandleDabort
+HandlerPabort	HANDLER HandlePabort
+2440init.s (s3c2440\source):613
+HandleSWI		#   4
+HandlePabort    #   4
+HandleDabort    #   4

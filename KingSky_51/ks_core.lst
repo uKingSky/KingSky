@@ -1,0 +1,812 @@
+C51 COMPILER V9.01   KS_CORE                                                               06/05/2012 15:05:52 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE KS_CORE
+OBJECT MODULE PLACED IN ks_core.obj
+COMPILER INVOKED BY: E:\Keil\C51\BIN\C51.EXE uCosii\ks_core.c LARGE BROWSE DEBUG OBJECTEXTEND PRINT(.\ks_core.lst) OBJEC
+                    -T(ks_core.obj)
+
+line level    source
+
+   1          
+   2          /*
+   3          *********************************************************************************************************
+   4          *                                               KingSky
+   5          *                                          ÊµÊ±²Ù×÷ÏµÍ³ÄÚºË
+   6          *
+   7          *                                       (c) Copyright 2011, ×¯Í©Èª
+   8          *                                          All Rights Reserved
+   9          *
+  10          * File         : ks_core.c
+  11          *ËµÃ÷£ºÄÚºË²Ù×÷ÏµÍ³µÄºËÐÄÎÄ¼þ
+  12          ********************************************************************************************************* 
+             -*/
+  13          
+  14          #ifndef  KS_MASTER_FILE
+  15          #define  KS_GLOBALS
+  16          #include "KingSky.h"
+  17          #endif
+  18          /*¾²Ì¬º¯ÊýÉùÃ÷*/
+  19          static void ks_readylist_init(void) ;
+  20          static void ks_threadtable_init(void) ;
+  21          static void ks_idle_init(void) reentrant;
+  22          static void ks_variable_init(void)  ;
+  23          /*¶¨Òå¿ÕÏÐÏß³ÌµÄÕ»¿Õ¼ä,ÀàÐÍÎªKS_STACK*/
+  24          KS_STACK thread_stack_idle[99+1];
+  25          /*
+  26           *********************************************************************************************************
+  27           *                                                      ÉêÇëÒ»¿é¿ÕÏÐÏß³Ì(ks_thread_allocate)
+  28           *
+  29           * ÃèÊö: ÉêÇëÒ»¿é¿ÕÏÐÏß³Ì¿é
+  30           *
+  31           * µ÷ÓÃ£ºks_item_init(Á´±í½Úµã³õÊ¼»¯)¡¢(ks_thread_block*)0(ÉêÇëÊ§°Ü)
+  32           *
+  33           * ²ÎÊý: ÎÞ
+  34           *
+  35           * ·µ»Ø: ptr(ÉêÇëµÄ¿ÕÏÐÏß³Ì¿éÖ¸Õë)¡¢
+  36           *
+  37           * ×¢Òâ: ÔÚ´´½¨Ïß³ÌµÄÊ±ºòµ÷ÓÃ¸Ãº¯Êý£¬¸ù¾Ý¶¨ÒåµÄreadylistµÄÊýÁ¿ÅÐ¶ÏÊÇ·ñÓÐ¿ÕÏÐÏß³Ì¿é
+  38           *********************************************************************************************************
+  39           */
+  40           ks_thread_block *ks_thread_allocate(void) reentrant    /*ÉêÇëÒ»¿é¿ÕÏÐÏß³Ì              */
+  41          {
+  42   1      #if KS_CRITICAL_METHOD == 3
+                      KS_CPU_SR cpu_sr;
+              #endif
+  45   1      
+  46   1              ks_thread_block *ptr;
+  47   1              KS_ENTER_CRITICAL();
+  48   1              ptr = pfree_thread;                                     /*ptrÖ¸Ïò¿ÕÏÐÏß³Ì¿ØÖÆ¿éµÄÍ·Ö¸Õë */
+  49   1              if(ptr !=(ks_thread_block*)0)                           /*ÅÐ¶ÏÊÇ·ñÓÐ¿ÕÏÐµÄÏß³Ì¿é±»Ê¹ÓÃ  */
+  50   1              {
+  51   2                      pfree_thread = ptr->thread_next;                /*ÈôÓÐ£¬Ôòµ÷Õûpfree_threadÖ¸Õë  */
+  52   2                      KS_EXIT_CRITICAL();
+  53   2                      return (ptr);                                   /*·µ»ØÉêÇëµ½µÃÖ¸Õë                              */
+C51 COMPILER V9.01   KS_CORE                                                               06/05/2012 15:05:52 PAGE 2   
+
+  54   2              }
+  55   1              KS_EXIT_CRITICAL();
+  56   1              return (ks_thread_block*)0;                 /*ÈôÎÞ·¨³É¹¦£¬Ôò·µ»ØÊ§°Ü±êÖ¾    */
+  57   1      }
+  58          
+  59          static void ks_item_init(ks_list_item *item) reentrant    /*Ë«ÏòÁ´±í½ÚµãµÄ³õÊ¼»¯                        */
+  60          {
+  61   1              item->container = (void*)0;
+  62   1      }
+  63          
+  64          /*
+  65           *********************************************************************************************************
+  66           *                                                      Ïß³Ì³õÊ¼»¯(ks_thread_init)
+  67           *
+  68           * ÃèÊö: ¶ÔÏß³Ì¿ØÖÆ¿éµÄÊý¾Ý½øÐÐ³õÊ¼»¯
+  69           *
+  70           * µ÷ÓÃ£ºks_item_init(Á´±í½Úµã³õÊ¼»¯)
+  71           *
+  72           * ²ÎÊý:*ptr(Ïß³Ì¿ØÖÆ¿é)¡¢*stk(Õ»µÄÆðÊ¼µØÖ·)¡¢prio(ÓÅÏÈ¼¶)¡¢thread_name(Ïß³ÌµÄÃû×Ö)
+  73           *
+  74           * ·µ»Ø: KS_NOERR_THREAD_INIT£ºÏß³Ì³õÊ¼»¯ÎÞÎó£» KS_ERR_THREAD_INIT£ºÏß³Ì³õÊ¼»¯´íÎó
+  75           *
+  76           * ×¢Òâ:ÔÚ´´½¨Ïß³ÌµÄÊ±ºòµ÷ÓÃ¸Ãº¯Êý
+  77           *********************************************************************************************************
+  78           */
+  79          uint8 ks_thread_init(ks_thread_block *ptr,KS_STACK *stk,KS_BASE_TYPE prio,const uint8 *const thread_name) 
+             -reentrant
+  80          {
+  81   1      #if KS_CRITICAL_METHOD == 3
+                      KS_CPU_SR cpu_sr;
+              #endif
+  84   1              
+  85   1              if(ptr != (ks_thread_block*)0)              /*³É¹¦ÉêÇëÒ»¿é¿ÕÏÐÏß³Ì       */
+  86   1              {
+  87   2                      KS_ENTER_CRITICAL();
+  88   2      #if KS_THREAD_NAME_EN > 0                                           /*³õÊ¼»¯Ïß³Ì¿ØÖÆ¿éµÄÊý¾Ý     */
+                              if(thread_name ==(const uint8 *const)0) /*Èç¹ûthread_nameÎª¿Õ            */
+                              {
+                                      strncpy(( uint8 *) ptr->thread_name, "", ( uint8 ) KS_THREAD_NAME_MAXLEN );
+                              }
+                              else                                                                    /*Èç¹ûthread_name²»Îª¿Õ          */
+                              {
+                                      strncpy(( uint8 *) ptr->thread_name, ( const uint8 * ) thread_name, ( uint8 ) KS_THREAD_NAME_MAXLEN );
+                              }
+                              ptr->thread_name[( uint8 )KS_THREAD_NAME_MAXLEN -( uint8 )1] = '\0';
+              #endif
+  99   2                      ptr->top_stack    = stk;                                   
+ 100   2                      ptr->priority     =(KS_BASE_TYPE)prio;  /*¶ÔÏß³Ì¿ØÖÆ¿éµÄÊý¾Ý½øÐÐ³õÊ¼»¯*/
+ 101   2                      ptr->thread_state = KS_STATE_READY;
+ 102   2                      ptr->item_in_delaylist = 0;
+ 103   2      
+ 104   2      #if KS_RR_EN >0
+                              ptr->insertlist_item.item_value = KS_TIME_PERC;    /*Ê±¼äÆ¬¸³Öµ                                  */
+              #endif
+ 107   2                      ks_item_init(&(ptr->insertlist_item));             /*³õÊ¼»¯Ïß³ÌÁ´±í              */
+ 108   2                      KS_ITEM_OWNER(&(ptr->insertlist_item),ptr);        /*½ÚµãÖ¸ÏòÄÇ¸öÏß³Ì¿é          */
+ 109   2      #if KS_EVENT_EN > 0
+                              ks_item_init(&(ptr->eventlist_item));              /*³õÊ¼»¯²åÈëÊÂ¼þÁ´±íµÄ½Úµã    */
+                              KS_ITEM_OWNER(&(ptr->eventlist_item),ptr);         /*ÉèÖÃ½ÚµãÖ¸ÏòÄÄ¸öÏß³Ì¿é      */
+              #endif
+ 113   2                      KS_EXIT_CRITICAL();
+ 114   2                      return (KS_NOERR_THREAD_INIT);
+C51 COMPILER V9.01   KS_CORE                                                               06/05/2012 15:05:52 PAGE 3   
+
+ 115   2              }
+ 116   1              
+ 117   1              return (KS_ERR_THREAD_INIT);
+ 118   1      }
+*** WARNING C280 IN LINE 79 OF UCOSII\KS_CORE.C: 'thread_name': unreferenced local variable
+ 119          /*
+ 120           *********************************************************************************************************
+ 121           *                                                      ³éÏóÁ´±í³õÊ¼»¯(ks_list_initialize)
+ 122           *
+ 123           * ÃèÊö: ¶ÔÒ»¸öÁ´±í½øÐÐ³õÊ¼»¯,½¨Á¢Í·½Úµãlist_end,item_indexÖ¸ÏòÍ·½Úµã 
+ 124           *
+ 125           * µ÷ÓÃ£ºÎÞ
+ 126           *
+ 127           * ²ÎÊý:list(Òª³õÊ¼»¯ÄÄ¸öÁ´±í)
+ 128           *
+ 129           * ·µ»Ø: ÎÞ
+ 130           *
+ 131           * ×¢Òâ: 
+ 132           *********************************************************************************************************
+ 133           */
+ 134          void ks_list_initialize( ks_list * newlist )                       
+ 135          {
+ 136   1              newlist->item_index = ( ks_list_item * ) &( newlist->list_end );/*item_indexÖ¸ÏòÁ´±íµÄÍ·½áµã  */
+ 137   1              newlist->list_end.item_value = 0;                                                               /*ÑÓÊ±µÄÊ±¼äÊý                */
+ 138   1              newlist->list_end.item_next = ( ks_list_item * )&( newlist->list_end);
+ 139   1              newlist->list_end.item_prev = ( ks_list_item * ) &( newlist->list_end);
+ 140   1              newlist->item_numbers = 0;
+ 141   1      #if KS_RR_EN >0
+                      newlist->rr_flag = 0;                                           /*Ê±¼äÆ¬±êÖ¾Î»ÇåÁã                */
+              #endif
+ 144   1      }
+ 145          /*
+ 146           *********************************************************************************************************
+ 147           *                                                      Á´±í½Úµã²åÈë(ks_list_insertend)
+ 148           *
+ 149           * ÃèÊö: Á´±í½Úµã²åÈë
+ 150           *
+ 151           * µ÷ÓÃ£ºÎÞ
+ 152           *
+ 153           * ²ÎÊý:list(ÔÚÄÄ¸öÁ´±í²åÈë)¡¢list_item(Òª²åÈëµÄÁ´±í½Úµã)
+ 154           *
+ 155           * ·µ»Ø: ÎÞ
+ 156           *
+ 157           * ×¢Òâ: ½«Òª²åÈëµÄÁ´±íºÍ½Úµã×÷Îª²ÎÊý´«Èë£¬Èç£ºks_list_insertend((ks_list*)&readylist[prio],(ks_list_item*
+             -)&ktb->insertlist_item);
+ 158           *********************************************************************************************************
+ 159           */
+ 160          void ks_list_insertend( ks_list *list, ks_list_item *newitem)  reentrant
+ 161          {
+ 162   1              volatile ks_list_item *  item_index;
+ 163   1              item_index = list->item_index;                 /*item_indexÖ¸ÏòÓû²åÈëÁ´±ílistµÄÍ·½Úµãitem_index*/
+ 164   1              newitem->item_next = item_index->item_next;
+ 165   1              newitem->item_prev = list->item_index;
+ 166   1              item_index->item_next->item_prev = ( volatile ks_list_item * ) newitem;
+ 167   1              item_index->item_next = ( volatile ks_list_item * ) newitem;
+ 168   1              list->item_index = ( volatile ks_list_item * ) newitem;
+ 169   1              
+ 170   1              newitem->container = ( void * ) list;
+ 171   1              ( list->item_numbers )++;                       /*Á´±íµÄ½ÚµãÊýµÝÔö                              */
+ 172   1      }
+ 173          /*
+ 174           *********************************************************************************************************
+C51 COMPILER V9.01   KS_CORE                                                               06/05/2012 15:05:52 PAGE 4   
+
+ 175           *                                                      Á´±í½ÚµãÉ¾³ý(ks_item_remove)
+ 176           *
+ 177           * ÃèÊö: Á´±í½ÚµãÉ¾³ý
+ 178           *
+ 179           * µ÷ÓÃ£ºÎÞ
+ 180           *
+ 181           * ²ÎÊý:list_item(ÒªÉ¾³ýµÄÁ´±í½Úµã)
+ 182           *
+ 183           * ·µ»Ø: ÎÞ
+ 184           *
+ 185           * ×¢Òâ: ½«ÒªÉ¾³ýµÄ½Úµã×÷Îª²ÎÊý´«Èë£¬Èç£ºks_item_remove((ks_list_item*)&ktb->insertlist_item);
+ 186           *********************************************************************************************************
+ 187           */
+ 188          void ks_item_remove( ks_list_item *list_item ) reentrant
+ 189          {
+ 190   1              ks_list * list;
+ 191   1              
+ 192   1              list_item->item_next->item_prev = list_item->item_prev;
+ 193   1              list_item->item_prev->item_next = list_item->item_next;
+ 194   1              list = ( ks_list * ) list_item->container;
+ 195   1              
+ 196   1              if( list->item_index == list_item )
+ 197   1              {
+ 198   2                      list->item_index = list_item->item_prev;
+ 199   2              }
+ 200   1              
+ 201   1              list_item->container = (void*)0;
+ 202   1              ( list->item_numbers )--;
+ 203   1      }
+ 204          /*
+ 205           *********************************************************************************************************
+ 206           *                                                      ¾ÍÐ÷Á´±í³õÊ¼»¯(ks_readylist_init)
+ 207           *
+ 208           * ÃèÊö: ¾ÍÐ÷Á´±í³õÊ¼»¯
+ 209           *
+ 210           * µ÷ÓÃ£ºÎÞ
+ 211           *
+ 212           * ²ÎÊý: ÎÞ
+ 213           *
+ 214           * ·µ»Ø: ÎÞ
+ 215           *
+ 216           * ×¢Òâ: ¶ÔÃ¿¸öÓÅÏÈ¼¶½øÐÐ³õÊ¼»¯£¬Ò²¾ÍÊÇÎªÃ¿¸öÓÅÏÈ¼¶½¨Á¢Ò»¸öË«ÏòÑ­»·Á´±í
+ 217           *********************************************************************************************************
+ 218           */
+ 219          static void ks_readylist_init(void)     
+ 220          {
+ 221   1      #if KS_MAX_PRIO < 256                  /*¸ù¾ÝÄÚºËÅäÖÃÖÐ×î¶àÓÅÏÈ¼¶Êý¶Ôi½øÐÐ¶¨ÒåºÍ³õÊ¼»¯                */
+ 222   1              uint8 i = 0;
+ 223   1      #elif KS_MAX_PRIO <65536
+                      uint16 i =0;
+              #else
+                      uint32 i = 0;
+              #endif
+ 228   1              for (i = 0;i < KS_MAX_PRIO+1;i++ ) /*¶ÔÃ¿¸öÓÅÏÈ¼¶½øÐÐ³õÊ¼»¯£¬Ò²¾ÍÊÇÎªÃ¿¸öÓÅÏÈ¼¶½¨Á¢Ò»¸öË«ÏòÑ­»·Á´±í*/
+ 229   1              {
+ 230   2                      ks_list_initialize((ks_list *)&readylist[i]);
+ 231   2              }
+ 232   1      }
+ 233          /*
+ 234           *********************************************************************************************************
+ 235           *                                                      Ïß³Ì¿éÁ´±í³õÊ¼»¯(ks_threadtable_init)
+ 236           *
+C51 COMPILER V9.01   KS_CORE                                                               06/05/2012 15:05:52 PAGE 5   
+
+ 237           * ÃèÊö: ½«¶¨ÒåµÄ¾ÍÐ÷Á´±íÓÖÁ¬½Ó³Éµ¥ÏòÁ´±í
+ 238           *
+ 239           * µ÷ÓÃ£ºÎÞ
+ 240           *
+ 241           * ²ÎÊý: ÎÞ
+ 242           *
+ 243           * ·µ»Ø: ÎÞ
+ 244           *
+ 245           * ×¢Òâ: Ã¿´Î´´½¨Ïß³ÌÊÂ£¬´Óµ¥ÏòÁ´±íÖÐÕªÈ¡Ò»¸ö£¬pfree_threadÖ¸ÏòÁ´±íµÄÍ·½áµã´¦
+ 246           *********************************************************************************************************
+ 247           */
+ 248          static void ks_threadtable_init(void) 
+ 249          {
+ 250   1      #if KS_MAX_PRIO < 256
+ 251   1              uint8 i = 0;
+ 252   1      #elif KS_MAX_PRIO <65536
+                      uint16 i =0;
+              #else
+                      uint32 i = 0;
+              #endif
+ 257   1               ks_thread_block *ptcb1;
+ 258   1               ks_thread_block *ptcb2;
+ 259   1              ptcb1 = &thread_table[0];
+ 260   1              ptcb2 = &thread_table[1];
+ 261   1              for (i =0;i<KS_MAX_PRIO;i++)            /*½«¶¨ÒåµÄ¾ÍÐ÷Á´±íÁ¬½Ó³Éµ¥ÏòÁ´±í*/
+ 262   1              {
+ 263   2                      ptcb1->thread_next = ptcb2;
+ 264   2                      ptcb1 ++;
+ 265   2                      ptcb2 ++;
+ 266   2              }
+ 267   1              ptcb1->thread_next = (ks_thread_block*)0;
+ 268   1              pfree_thread = &thread_table[0];
+ 269   1      }
+ 270          /*
+ 271           *********************************************************************************************************
+ 272           *                                                      ÏµÍ³³õÊ¼»¯Ê±±äÁ¿³õÊ¼»¯(ks_variable_init)
+ 273           *
+ 274           * ÃèÊö: ¸ù¾ÝÏµÍ³µÄÅäÖÃ£¬·Ö±ð¶Ô²»Í¬±äÁ¿½øÐÐ³õÊ¼»¯¡£
+ 275           *
+ 276           * µ÷ÓÃ£ºÎÞ
+ 277           *
+ 278           * ²ÎÊý: ÎÞ
+ 279           *
+ 280           * ·µ»Ø: ÎÞ
+ 281           *
+ 282           * ×¢Òâ: KS_MAX_PRIOÔÚks_cfg.hÖÐ¶¨Òå,¸Ãº¯ÊýÎª¾²Ì¬º¯Êý£¬ÕâÄÜÔÚ±¾Ô´ÎÄ¼þµ÷ÓÃ¡£
+ 283           *********************************************************************************************************
+ 284           */
+ 285          static void ks_variable_init(void) 
+ 286          {
+ 287   1              
+ 288   1      #if KS_MAX_PRIO < 256                                                   /*¶¨Òå±äÁ¿Îª8Î»±äÁ¿                             */
+ 289   1              top_readylist_priority = 0xff ;          
+ 290   1              current_running_priority = 0xff ;
+ 291   1      #elif KS_MAX_PRIO < 65536                                               /*¶¨Òå±äÁ¿Îª16Î»±äÁ¿                    */
+                      top_readylist_priority = 0xffff;
+                      current_running_priority = 0xffff;
+              #else
+                      top_readylist_priority = 0xffffffff;            /*¶¨Òå±äÁ¿Îª32Î»±äÁ¿                    */
+                      current_running_priority = 0xffffffff;
+              #endif
+ 298   1              ks_running = KS_FALSE;
+C51 COMPILER V9.01   KS_CORE                                                               06/05/2012 15:05:52 PAGE 6   
+
+ 299   1              int_nesting = 0;
+ 300   1              lock_nesting = 0;
+ 301   1      #if KS_RR_EN > 0                                                                /*ÊÇ·ñÊ¹ÄÜÊ±¼äÆ¬ÂÖ                              */
+                      next_thread = (ks_thread_block*)0; 
+              #endif
+ 304   1      }
+ 305          /*
+ 306           *********************************************************************************************************
+ 307           *                                                        ´´½¨¿ÕÏÐÏß³Ì(ks_idle_init)
+ 308           *
+ 309           * ÃèÊö: ´´½¨¿ÕÏÐÏß³Ì£¬µ±ÏµÍ³Ã»ÓÐÆäËûÓÅÏÈ¼¶¿ÉÒÔÔËÐÐÊ±£¬ÏµÍ³»áµ÷ÓÃÔËÐÐÕâ¸ö¿ÕÏÐÏß³Ì¡£
+ 310           *
+ 311           * µ÷ÓÃ£ºks_thread_create£¨Ïß³Ì´´½¨º¯Êý£©¡¢ks_thread_idle£¨¿ÕÏÐÏß³Ìº¯Êý£©
+ 312           *
+ 313           * ²ÎÊý: ÎÞ
+ 314           *
+ 315           * ·µ»Ø: ÎÞ
+ 316           *
+ 317           * ×¢Òâ: KS_STK_GROWTH == 1£º±íÊ¾Õ»µÄÔö³¤·½Ê½ÊÇ´ÓÉÏÍùÏÂÔö³¤£¬KS_STK_GROWTH == 0£º
+ 318                           ±íÊ¾Õ»µÄÔö³¤·½Ê½ÊÇ´ÓÏÂÍùÉÏ Ôö³¤£¬¸ù¾ÝKS_STK_GROWTHµÄ²»Í¬Öµ£¬´´½¨¿ÕÏÐÏß³Ì¡£
+ 319                          
+ 320           *********************************************************************************************************
+ 321           */
+ 322          static void ks_idle_init(void) reentrant
+ 323          {
+ 324   1      #if KS_STK_GROWTH == 1
+                      h_idle = ks_thread_create(ks_thread_idle,(uint8*)"idle",(void*)0,&thread_stack_idle[KS_STACK_MAX_LEN-1],K
+             -S_MAX_PRIO);
+              #elif KS_STK_GROWTH == 0
+ 327   1              h_idle = ks_thread_create(ks_thread_idle,(uint8*)"idle",(void*)0,&thread_stack_idle[0],KS_MAX_PRIO);
+ 328   1      #endif
+ 329   1      }
+ 330          /*
+ 331           *********************************************************************************************************
+ 332           *                                                                      ÏµÍ³³õÊ¼»¯(ks_system_initialize)
+ 333           *
+ 334           * ÃèÊö: ÏµÍ³Æô¶¯Ç°µÄ³õÊ¼»¯£¬°üÀ¨È«¾Ö±äÁ¿³õÊ¼»¯¡¢¾ÍÐ÷Á´±í³õÊ¼»¯¡¢ÑÓÊ±Á´±í³õÊ¼»¯¡¢Ïß³Ì¿éÁ´±í³õÊ¼»¯
+ 335           *
+ 336           * µ÷ÓÃ£ºks_variable_init£¨±äÁ¿³õÊ¼»¯£©¡¢ks_readylist_init£¨¾ÍÐ÷Á´±í³õÊ¼»¯)¡¢ks_threadtable_init(Ïß³Ì¿éÁ´±
+             -í³õÊ¼»¯)
+ 337           *       ks_list_initialize(ÑÓÊ±Á´±í³õÊ¼»¯)¡¢ks_idle_init(´´½¨¿ÕÏÐÏß³Ì)
+ 338           *
+ 339           * ²ÎÊý: ÎÞ
+ 340           *
+ 341           * ·µ»Ø: ÎÞ
+ 342           *
+ 343           * ×¢Òâ: KS_STK_GROWTH == 1£º±íÊ¾Õ»µÄÔö³¤·½Ê½ÊÇ´ÓÉÏÍùÏÂÔö³¤£¬KS_STK_GROWTH == 0£º
+ 344           *               ±íÊ¾Õ»µÄÔö³¤·½Ê½ÊÇ´ÓÏÂÍùÉÏ Ôö³¤£¬¸ù¾ÝKS_STK_GROWTHµÄ²»Í¬Öµ£¬´´½¨¿ÕÏÐÏß³Ì¡£
+ 345           *              
+ 346           *********************************************************************************************************
+ 347           */
+ 348          void ks_system_initialize(void) reentrant
+ 349          {
+ 350   1              
+ 351   1              ks_variable_init();                                                                     /*¶ÔÒ»Ð©È«¾Ö±äÁ¿½øÐÐ³õÊ¼»¯*/
+ 352   1              ks_readylist_init();                                                            /*¶Ô¾ÍÐ÷Á´±í½øÐÐ³õÊ¼»¯    */
+ 353   1              ks_threadtable_init();
+ 354   1              ks_list_initialize((ks_list *)&delaylist[0]);           /*¶ÔÑÓÊ±Á´±í½øÐÐ³õÊ¼»¯    */
+ 355   1              ks_idle_init();
+ 356   1      }
+ 357          
+ 358          void ks_schedule(void)  reentrant
+C51 COMPILER V9.01   KS_CORE                                                               06/05/2012 15:05:52 PAGE 7   
+
+ 359          {
+ 360   1      #if KS_CRITICAL_METHOD == 3
+                      KS_CPU_SR cpu_sr;
+              #endif
+ 363   1              KS_BASE_TYPE top = 0;
+ 364   1              KS_ENTER_CRITICAL();
+ 365   1              /*Èç¹ûÈÎÎñµÄµ÷¶È½ûÖ¹µÄ£¨µ÷¶ÈÉÏËø£©£¬»òµ±Ç°´¦ÓÚÖÐ¶Ï·þÎñ×Ó³ÌÐò£¬Ïß³ÌµÄµ÷¶ÈÊÇ²»ÔÊÐíµÄ¡£*/
+ 366   1              if(int_nesting == 0&& lock_nesting == 0)                     
+ 367   1              {
+ 368   2                      for (top = top_readylist_priority;top < (KS_BASE_TYPE)(KS_MAX_PRIO+(KS_BASE_TYPE)1);++top)
+ 369   2                      {
+ 370   3                              if(readylist[top].item_numbers != 0)/*±éÀú²éÕÒ*/
+ 371   3                              {
+ 372   4                                      break;
+ 373   4                              }
+ 374   3                      }/*²éÕÒµ½¾ÍÐ÷±íµÄ×î¸ßÓÅÏÈ¼¶¾ÍÊÇtop*/
+ 375   2                      
+ 376   2              
+ 377   2                      top_readylist_priority = top;                                        /*¸üÐÂtop_readylist_priorityµÄÖµ                   
+             -   */
+ 378   2                      if(current_running_priority != top_readylist_priority)                           /*Èç¹û¾ÍÐ÷±íµÄ×î¸ßÓÅÏÈ¼¶²»ÊÇµ±Ç°Ïß³ÌµÄÓÅÏÈ¼¶
+             -  */
+ 379   2                      {
+ 380   3                              current_running_priority = top_readylist_priority;                               /*¸üÐÂµ±Ç°ÔËÐÐµÄÓÅÏÈ¼¶µÄÖµ                    *
+             -/
+ 381   3                              high_thread = (ks_thread_block*)readylist[top].item_index->owner;/*½«µ±Ç°Ö¸ÕëÖ¸Ïò¼´½«ÔËÐÐµÄ×î¸ßÓÅÏÈ¼¶µÄ
+             -Ïß³Ì    */
+ 382   3                              high_thread->item_in_delaylist = 0;                                                              /*¼´½«ÔËÐÐµÄÏß³Ì¿éÔÚ¾ÍÐ÷Á´±íÀï£¬²»ÔÚÑÓÊ±Á´±íÀï*/
+ 383   3                              KS_THREAD_SW();                                                                                                  /*½øÐÐÏß³Ì¼¶±ðµÄµ÷¶È                          */
+ 384   3                      }
+ 385   2      #if KS_RR_EN >0                                                                                                                          /*ÊÇ·ñÊ¹ÄÜÊ±¼äÆ¬                                                          */
+                              else 
+                              {
+                                      if((readylist[current_running_priority].item_numbers) >= (KS_BASE_TYPE)1)
+                                      {
+                                              if(next_thread == (ks_thread_block*)0)                       /*È·±£next_thread²»Îª¿Õ                                       */
+                                              {
+                                                      KS_EXIT_CRITICAL();
+                                                      return;
+                                              }
+                                              high_thread = next_thread;                                                                      /*¼´½«ÔËÐÐµÄÏß³Ì¿éÖ¸ÕëÖ¸Ïònext_thread              */
+                                              KS_THREAD_SW();                                             /*Ïß³Ì¼¶±ðµÄµ÷¶È                                                       */
+                                      }
+                              }
+              #endif          
+ 400   2                      /*Èç¹û²éÕÒ³öÀ´×î¸ßÓÅÏÈ¼¶µÄÈÎÎñ»¹ÊÇÔËÐÐÌ¬µÄÈÎÎñ£¬¾Í²»½øÐÐµ÷¶È£¬Ö±½ÓÔËÐÐ¡£*/
+ 401   2              }
+ 402   1      
+ 403   1              KS_EXIT_CRITICAL();
+ 404   1      }
+ 405          
+ 406          void ks_start(void) reentrant
+ 407          {
+ 408   1              if(ks_running == KS_FALSE)             /*ÅÐ¶ÏÏµÍ³ÊÇ·ñÒÑ¾­Æô¶¯      */
+ 409   1              {
+ 410   2                      
+ 411   2                      current_thread = high_thread;
+ 412   2                      ks_start_high();
+ 413   2                      /*ÉÏÃæº¯ÊýÊµÏÖks_running = KS_TRUE;½«¶àÈÎÎñÏµÍ³ÔËÐÐ×´Ì¬±êÖ¾ÎªTRUE£»
+ 414   2                        µ÷ÓÃ×¼±¸¾ÍÐ÷µÄ×î¸ßÓÅÏÈ¼¶ÈÎÎñÆô¶¯º¯Êý£¬ÒªÓÃ»ã±àÀ´Ð´¡£         */
+ 415   2              }
+ 416   1      }
+C51 COMPILER V9.01   KS_CORE                                                               06/05/2012 15:05:52 PAGE 8   
+
+ 417          
+ 418          
+ 419          void ks_time_tick(void) reentrant
+ 420          {
+ 421   1      #if KS_CRITICAL_METHOD == 3
+                      KS_CPU_SR cpu_sr;
+              #endif
+ 424   1           KS_BASE_TYPE i,num,prio = 0;
+ 425   1               volatile  ks_list_item * volatile p;                                   /*¶¨ÒåÖ¸ÏòÁ´±í½ÚµãµÄÖ¸Õë                */
+ 426   1               ks_thread_block *ktb;                                                                  /*¶¨ÒåÖ¸ÏòÏß³Ì¿ØÖÆ¿éµÄÖ¸Õë              */
+ 427   1              // ks_list *kl;
+ 428   1               num = delaylist[0].item_numbers;                       /*ÑÓÊ±Á´±í½ÚµãµÄÊýÁ¿                */
+ 429   1               
+ 430   1               p = delaylist[0].item_index->item_next->item_next;     /*pÖ¸ÏòÁ´±íµÄµÚÒ»¸öÓÐÊý¾ÝµÄ½Úµã */
+ 431   1               
+ 432   1               for(i =0; i < num; i++)                                /*´ÓµÚÒ»¿éÏß³Ì¿ØÖÆ¿é¿ªÊ¼±éÀú    */
+ 433   1              {
+ 434   2                      KS_ENTER_CRITICAL();                                                            /*½øÈëÁÙ½çÇø                                    */                      
+ 435   2      
+ 436   2                      ktb = (ks_thread_block*)(p->owner);                                     /*Ö¸ÕëktbÖ¸Ïò±éÀúµ½µÃÏß³Ì¿ØÖÆ¿é */                      
+ 437   2                      if(ktb->thread_delay != 0)
+ 438   2                      {
+ 439   3                              if(--(ktb->thread_delay) == 0)                                  /*ÑÓÊ±µÄµÎ´ðÊýµÝ¼õ                              */
+ 440   3                              {
+ 441   4                                      if(!(ktb->thread_state & KS_STATE_SUSPEND)) /*¼ìÑéÏß³ÌÊÇ·ñ±»¹ÒÆð                        */
+ 442   4                                      {
+ 443   5                                              p = p->item_prev;
+ 444   5                                              prio = ktb->priority;
+ 445   5                                              ks_item_remove((ks_list_item*)&ktb->insertlist_item); /*½«ktbËùÖ¸ÏòµÄÏß³Ì¿é´Ó¾ÍÐ÷Á´±íÖÐÉ¾³ý */
+ 446   5                                              ks_list_insertend((ks_list*)&readylist[prio],(ks_list_item*)&ktb->insertlist_item);/*½«ktbËùÖ¸ÏòµÄÏß³
+             -Ì¿é²åÈëµ½ÑÓÊ±Á´±íÖÐ*/
+ 447   5                                              ktb->item_in_delaylist = 1;                                                       /*±íÊ¾ktbËùÖ¸ÏòµÄÏß³Ì¿éÔÚÑÓÊ±Á´±íÖÐ   */
+ 448   5                                              if (prio < top_readylist_priority)
+ 449   5                                              {
+ 450   6                                                      top_readylist_priority = prio;                                    /*¸üÐÂtop_readylist_priorityµÄÖµ      */
+ 451   6                                              }
+ 452   5                                      }
+ 453   4                                       else                                                                                                     /*ÈôÊÇÏß³Ì±»¹ÒÆðµÄ×´Ì¬                                */
+ 454   4                                      {
+ 455   5                                                      ktb->thread_delay = 1;                            /*ÑÓÊ±ÊýÖÃ1£¬±£³Ö¹ÒÆð×´Ì¬                             */
+ 456   5                                      }
+ 457   4                                      
+ 458   4                              }
+ 459   3                      }
+ 460   2                      p = p->item_next;                                                                                                /*Ö¸ÕëpÖ¸ÏòÏÂÒ»¸öÏß³Ì¿ØÖÆ¿é                    */
+ 461   2                      KS_EXIT_CRITICAL();                                                                                              /*ÍË³öÁÙ½çÇø                                                   */
+ 462   2              }
+ 463   1               
+ 464   1      #if KS_RR_EN > 0                                                                                                                 /*ÊÇ·ñÊ¹ÄÜÊ±¼äÆ¬×ª                                             */
+                      KS_ENTER_CRITICAL();                                                                                             /*½øÈëÁÙ½çÇø                                                   */
+                      
+                      if(readylist[current_thread->priority].rr_flag == (uint8)1)                      /*µ±Ç°Ïß³Ì¿éËùÔÚÁ´±íÊÇ·ñÓÐrr_flag(Ê±¼äÆ¬×ª
+             -)µÄ±ê¼Ç*/
+                      {
+                              if(--(current_thread->insertlist_item.item_value) ==0)           /*¶Ôµ±Ç°µÄÏß³Ì¿éµÄÊ±¼äÆ¬µÝ¼õ                                     */
+                              {
+                                      if (readylist[current_thread->priority].item_numbers > (KS_BASE_TYPE)1)
+                                      {
+                                              if(current_thread->insertlist_item.item_next->item_value == 0)/*ÅÐ¶Ïcurrent_threadµÄ½ÚµãÔÚÁ´±íÖÐÊÇ·ñÎª
+             -×îºóÒ»¸ö½Úµã*/
+                                              {
+                                                      high_thread =(ks_thread_block*)current_thread->insertlist_item.item_next->item_next->owner;/*high_thr
+C51 COMPILER V9.01   KS_CORE                                                               06/05/2012 15:05:52 PAGE 9   
+
+             -eadÖ¸ÏòÏÂÒ»¸ö½ÚµãËù¶ÔÓ¦µÄÏß³Ì¿ØÖÆ¿é*/
+                                              }
+                                              else                                                                                                             /*high_threadÖ¸ÏòÏÂÒ»¸ö½ÚµãËù¶ÔÓ¦µÄÏß³Ì¿ØÖÆ¿é          */
+                                              {
+                                                      high_thread =(ks_thread_block*)current_thread->insertlist_item.item_next->owner;
+                                              }
+                                      }
+                                      current_thread->insertlist_item.item_value = KS_TIME_PERC;       /*ÉèÖÃÏß³Ì¿ØÖÆ¿écurrent_threadµÄÊ±¼äÆ¬
+             -ÎªKS_TIME_PERC*/
+                              }
+                      }
+              
+                      KS_EXIT_CRITICAL();                                                                                                              /*ÍË³öÁÙ½çÇø                                           */
+              #endif  
+ 488   1              
+ 489   1      }
+ 490          
+ 491          void ks_int_enter(void) reentrant //½øÈëÖÐ¶Ï
+ 492          {
+ 493   1              if(ks_running == KS_TRUE)                 /*ÅÐ¶ÏÏµÍ³ÊÇ·ñÆô¶¯                              */
+ 494   1              {
+ 495   2                      if(int_nesting < 255)         /*ÅÐ¶ÏÖÐ¶ÏÇ¶Ì×int_nestingÊÇ·ñ´óÓÚ255*/
+ 496   2                      {
+ 497   3                              int_nesting ++;           /*·ñÔòÖÐ¶ÏÇ¶Ì×int_nestingµÝÔö           */
+ 498   3                      }
+ 499   2              }
+ 500   1      }
+ 501          //extern void ks_int_sw(void);
+ 502          
+ 503          void ks_int_exit(void) reentrant                /*ÖÐ¶ÏÀë¿ª*/
+ 504          {
+ 505   1      #if KS_CRITICAL_METHOD == 3
+                      KS_CPU_SR cpu_sr;
+              #endif
+ 508   1              KS_BASE_TYPE top = 0;
+ 509   1      
+ 510   1              KS_ENTER_CRITICAL();
+ 511   1              if(ks_running == KS_TRUE)
+ 512   1              {
+ 513   2                      if(int_nesting > 0) 
+ 514   2                      {
+ 515   3                              int_nesting --;                                                 /*ÖÐ¶ÏÇ°Ì×ÊýµÝ¼õ                                   */
+ 516   3                      }
+ 517   2                      if(int_nesting == 0 && lock_nesting == 0)   /*ÅÐ¶ÏÖÐ¶ÏÇ¶Ì×ÊÇ·ñÎª0£¬ÒÔ¼°ÊÇ·ñ±»Ëø*/
+ 518   2                      {
+ 519   3                                                                                                              /*±éÀú²éÕÒÓÅÏÈ¼¶                                   */                                     
+ 520   3                              for (top = top_readylist_priority;top < (KS_BASE_TYPE)(KS_MAX_PRIO+(KS_BASE_TYPE)1);++top)
+ 521   3                              {
+ 522   4                                      if(readylist[top].item_numbers != 0)/*²éÕÒµ½¾ÍÐ÷±íµÄ×î¸ßÓÅÏÈ¼¶¾ÍÊÇtop  */
+ 523   4                                      {
+ 524   5                                              break;
+ 525   5                                      }
+ 526   4                              }                                                                               
+ 527   3                                      top_readylist_priority = top;
+ 528   3                      
+ 529   3                              if(current_running_priority != top_readylist_priority)   /*Èç¹û¾ÍÐ÷±íµÄ×î¸ßÓÅÏÈ¼¶²»ÊÇµ±Ç°Ïß³ÌµÄÓÅÏÈ¼¶  
+             -                        */
+ 530   3                              {
+ 531   4                                      current_running_priority = top_readylist_priority;   /*¸üÐÂµ±Ç°ÔËÐÐµÄÓÅÏÈ¼¶µÄÖµ                                         
+             -*/
+ 532   4                                      high_thread = (ks_thread_block*)readylist[top].item_index->owner;/*½«µ±Ç°Ö¸ÕëÖ¸Ïò¼´½«ÔËÐÐµÄ×î¸ßÓÅÏÈ¼¶µ
+             -ÄÈÎÎñ        */
+C51 COMPILER V9.01   KS_CORE                                                               06/05/2012 15:05:52 PAGE 10  
+
+ 533   4                                      high_thread->item_in_delaylist = 0;                                      /*¼´½«ÔËÐÐµÄÏß³Ì¿éÔÚ¾ÍÐ÷Á´±íÀï£¬²»ÔÚÑÓÊ±Á´±íÀï                 */
+ 534   4                                      ks_int_sw();                                                                             /*½øÐÐÖÐ¶Ï¼¶±ðµÄµ÷¶È                                                                   */
+ 535   4                      
+ 536   4                                      
+ 537   4                              }
+ 538   3      
+ 539   3                              else if(current_running_priority == top_readylist_priority)
+ 540   3                              {
+ 541   4                                      if(readylist[current_thread->priority].item_numbers > 1)
+ 542   4                                      {
+ 543   5                                              ks_int_sw();                                                                    /*½øÐÐÖÐ¶Ï¼¶±ðµÄµ÷¶È                                                                    */
+ 544   5                                      }
+ 545   4                              }
+ 546   3                      }
+ 547   2              }       
+ 548   1              KS_EXIT_CRITICAL(); /*ÍË³öÁÙ½çÇø        */
+ 549   1      }
+ 550          
+ 551          #if KS_SCHEDULE_LOCK_EN > 0
+              
+              void ks_schedule_lock(void)     reentrant
+              {
+              #if KS_CRITICAL_METHOD == 3
+                      KS_CPU_SR cpu_sr;
+              #endif
+                      if(ks_running == KS_TRUE)  /*È·±£ÏµÍ³´¦ÓÚÔËÐÐ×´Ì¬                                                               */
+                      {
+                              KS_ENTER_CRITICAL();   /*½øÈëÁÙ½çÇø                                                                                     */
+                              if(lock_nesting < 255) /*Ëø¶¨Ç¶Ì×¼ÆÊýÆ÷ÊÇ·ñ<255£¬ÏµÍ³×î¶àÖ§³Ö255µÄÇ¶Ì×¼ÆÊýÆ÷*/
+                              {
+                                      lock_nesting++;    /*Ç¶Ì×¼ÆÊýÆ÷¼Ó1                                                                              */
+                              }
+                              KS_EXIT_CRITICAL();    /*ÍË³öÁÙ½çÇø                                                                                     */                                                        
+             -                                                                                                                        
+             -                                                                                                                        
+             -                            
+                      }
+              }
+              
+              void ks_schedule_unlock(void)  reentrant
+              {
+              #if KS_CRITICAL_METHOD == 3
+                      KS_CPU_SR cpu_sr;
+              #endif
+                      if(ks_running == KS_TRUE)      /*È·±£ÏµÍ³´¦ÓÚÔËÐÐ×´Ì¬                           */
+                      {
+                              KS_ENTER_CRITICAL();
+                              if(lock_nesting > 0)
+                              {
+                                      lock_nesting--;        /*Ç¶Ì×¼ÆÊýÆ÷¼õ1                                          */
+                                      if(lock_nesting==0 && int_nesting == 0)/*È·±£µ÷ÓÃÕß²»ÊÇISR      */
+                                      {
+                                              KS_EXIT_CRITICAL();
+                                              ks_schedule();     /*½øÐÐµ÷¶È                                                   */
+                                      }
+                                      else
+                                      {
+                                              KS_EXIT_CRITICAL();/*ÍË³öÁÙ½çÇø                                                 */
+                                      }
+                              }
+                              else
+                              {
+C51 COMPILER V9.01   KS_CORE                                                               06/05/2012 15:05:52 PAGE 11  
+
+                                      KS_EXIT_CRITICAL();   /*ÍË³öÁÙ½çÇø                                                      */
+                              }
+                      }
+              }
+              
+              #endif
+ 598          
+ 599          #if KS_EVENT_EN > 0
+              
+               void ks_event_list_init(ks_event *pevent) reentrant
+              {
+              #if KS_MAX_PRIO < 256      /*¸ù¾Ý²»Í¬µÄÓÅÏÈ¼¶ÊýÁ¿¶¨Òå²»Í¬µÄi£¬²¢¶Ôop_eventlist_priority½øÐÐ³õÊ¼»¯*/
+                      uint8 i = 0;
+                      pevent->top_eventlist_priority = 0xff;
+              #elif KS_MAX_PRIO <65536
+                      uint16 i =0;
+                      pevent->top_eventlist_priority = 0xffff;
+              #else
+                      uint32 i = 0;
+                      pevent->top_eventlist_priority = 0xffffffff;
+              #endif
+                      pevent->event_wait_num = 0;       /*µÈ´ýÏûÏ¢µÄÏß³ÌÊýÁ¿,0=Ã»ÓÐÏß³ÌÔÚµÈ´ýÏûÏ¢*/
+                      /*¶ÔÃ¿¸öÓÅÏÈ¼¶µÄÁ´±í½øÐÐ³õÊ¼»¯*/
+                      pevent->event_wait_list = (ks_list*)ks_malloc((KS_MAX_PRIO+1)*sizeof(ks_list));
+                      for (i = 0;i < KS_MAX_PRIO+1;i++ )
+                      {
+                              ks_list_initialize((ks_list *)&pevent->event_wait_list[i]);
+                      }
+                      
+              }
+              
+              /*Ê¹ÊÂ¼þµÈ´ýÁ´±íÖÐµÄÏß³Ì½øÈëÏß³ÌµÄ¾ÍÐ÷Ì¬*/
+              ks_thread_block * ks_event_ready(ks_event *pevent,void *msg,uint8 msk)  reentrant
+              {
+                      KS_BASE_TYPE top = 0;
+                      ks_thread_block *high_event_thread;
+                      for (top = pevent->top_eventlist_priority;top < (KS_BASE_TYPE)(KS_MAX_PRIO+(KS_BASE_TYPE)1);++top)
+                      {
+                              if(pevent->event_wait_list[top].item_numbers != 0)
+                              {
+                                              break;
+                              }
+                      }
+                      /*²éÕÒµ½µÈ´ýÁ´±íÖÐµÄ×î¸ßÓÅÏÈ¼¶¾ÍÊÇtop*/
+                      pevent->top_eventlist_priority = top;
+                  /*Ö§³ÖÊ±¼äÂÖ×ª·¨*/
+              #if KS_RR_EN > 0
+                      if(pevent->event_wait_list[top].item_numbers > 1)/*ÓÐ¶à¸öÍ¬µÈÓÅÏÈ¼¶µÄÇé¿öÏÂ£¬ÓÅÏÈÑ¡ÔñÏÈµ½´ïµÄÏß³Ì¿é*/
+                      {
+                              high_event_thread =(ks_thread_block*)pevent->event_wait_list[top].item_index->item_next->item_next->owne
+             -r;
+                      }
+                      else
+              #endif
+                      {
+                              high_event_thread =(ks_thread_block*)pevent->event_wait_list[top].item_index->owner;
+                      }
+                      
+                      ks_item_remove((ks_list_item*)&high_event_thread->insertlist_item);/*½«ÊÂ¼þµÈ´ýÁ´±íÖÐµÄ×î¸ßÓÅÏÈ¼¶Ïß³ÌÉ¾³ý
+             -*/
+                      ks_item_remove((ks_list_item*)&high_event_thread->eventlist_item);
+                      
+C51 COMPILER V9.01   KS_CORE                                                               06/05/2012 15:05:52 PAGE 12  
+
+                      high_event_thread->thread_delay = 0;                /*Ö±½Ó½«¸Ã±äÁ¿ÇåÁã                                            */                                                            
+                      high_event_thread->pthread_event = (ks_event*)0;/*Ïß³Ì¿ØÖÆ¿éÖÐÖ¸ÏòÊÂ¼þ¿ØÖÆ¿éµÄÖ¸ÕëÉèÎªNULL*/
+              #if KS_Q_EN > 0
+               /*Èç¹ûks_event_ready()ÊÇÓÉÏûÏ¢¶ÓÁÐ·¢ËÍº¯Êýµ÷ÓÃ£¬
+               ÄÇÃ´¸Ãº¯Êý»¹Òª½«ÏàÓ¦µÄÏûÏ¢´«µÝ¸øµÈ´ýÁ´±íÖÐ×î¸ßÓÅÏÈ¼¶µÄÏß³Ì¿é£¬²¢ÇÒ·ÅÔÚËüµÄÈÎÎñ¿ØÖÆ¿éÖÐ*/
+                      high_event_thread->pthread_msg = msg;
+              #else
+                      msg = msg;                                                                /*·ÀÖ¹±àÒëÆ÷±àÒë¾¯¸æ                                                    */
+              #endif
+                      high_event_thread->thread_state &= ~msk;  /*Î»ÆÁ±ÎÂëmsk×÷Îª²ÎÊý´«µÝ¸øËü,»Ö¸´Ïß³ÌÔ­ÏÈµÄ×´Ì¬*/
+                      
+                      if(high_event_thread->thread_state == KS_STATE_READY)/*½«Ïß³Ì²åÈëµ½Ïß³Ì¾ÍÐ÷±íÖÐ                   */
+                      {
+                              ks_list_insertend((ks_list*)&readylist[top],(ks_list_item*)&high_event_thread->insertlist_item);
+                      }
+                      else                                                                                            /*½«Ïß³Ì²åÈëµ½Ïß³ÌÑÓÊ±Á´±íÖÐ          */        
+                      {
+                              ks_list_insertend((ks_list*)&delaylist[0],(ks_list_item*)&high_event_thread->insertlist_item);
+                      }
+                      pevent->event_wait_num--;                                                       /*µÈ´ýÏûÏ¢µÄÏß³ÌÊý¼õ1                             */
+                      return (high_event_thread);
+              }
+              /*Ê¹Ïß³Ì½øÈëµÈ´ýÄ³ÊÂ¼þ·¢Éú×´Ì¬*/
+              void ks_event_wait(ks_event *pevent) reentrant
+              {
+                      current_thread->pthread_event = pevent; /*½«ÊÂ¼þ¿ØÖÆ¿éµÄÖ¸Õë·Åµ½Ïß³Ì¿ØÖÆ¿éÖÐ*/
+              #if KS_RR_EN >0
+                              if(readylist[current_running_priority].item_numbers > (KS_BASE_TYPE)1)
+                              {
+                                      if(current_thread->insertlist_item.item_next->item_value == 0)
+                                      {
+                                              next_thread =(ks_thread_block*)current_thread->insertlist_item.item_next->item_next->owner;
+                                      }
+                                      else if(current_thread->insertlist_item.item_next->item_value > 0)
+                                      {
+                                              next_thread =(ks_thread_block*)current_thread->insertlist_item.item_next->owner;
+                                      }
+                              }
+              #endif
+                      ks_item_remove((ks_list_item*)&current_thread->insertlist_item);/*½«Ïß³Ì´ÓÏß³Ì¾ÍÐ÷±íÖÐÉ¾³ý*/
+                      ks_list_insertend((ks_list*)&delaylist[0],(ks_list_item*)&current_thread->insertlist_item);
+                                                                                              /*½«Ïß³Ì·Åµ½ÊÂ¼þµÈ´ýÁ´±íÖÐ                              */
+                       ks_list_insertend((ks_list*)&pevent->event_wait_list[current_thread->priority],(ks_list_item*)&current_t
+             -hread->eventlist_item);
+                      pevent->event_wait_num ++;          /*µÈ´ýÏûÏ¢µÄÏß³ÌÊý¼Ó1                                       */
+                      if(current_thread->priority < pevent->top_eventlist_priority)
+                      {                                                                       /*¸üÐÂpevent->top_eventlist_priorityµÄÖµ*/
+                              pevent->top_eventlist_priority = current_thread->priority;
+                      }
+              }
+              /*Ïß³ÌµÈ´ý³¬Ê±¶ø½«Ïß³ÌÖÃÎª¾ÍÐ÷Ì¬*/
+              void ks_event_to(ks_event *pevent) reentrant
+              {
+                      ks_item_remove((ks_list_item*)&current_thread->eventlist_item);   /*½«Ïß³Ì´ÓÊÂ¼þµÈ´ýÁ´±íÖÐÉ¾³ý  */
+                                                                                                                                                        /*½«Ïß³Ì²åÈëµ½Ïß³Ì¾ÍÐ÷Á´±íÖÐ  */
+                      current_thread->thread_state = KS_STATE_READY;                                    /*Ïß³ÌµÄ×´Ì¬±êÖ¾Îª¾ÍÐ÷Ì¬              */
+                      current_thread->pthread_event = (ks_event*)0;                                     /*É¾³ýÖ¸ÏòÊÂ¼þ¿ØÖÆ¿éµÄÖ¸Õë    */
+                      pevent->event_wait_num --;                                                                        /*µÈ´ýÏûÏ¢µÄÏß³ÌÊý¼õ1         */
+              }
+              #endif
+ 711          
+ 712          /*ÄÚ´æÉêÇëº¯Êý*/
+C51 COMPILER V9.01   KS_CORE                                                               06/05/2012 15:05:52 PAGE 13  
+
+ 713          void *ks_malloc(uint32 size) reentrant
+ 714          {
+ 715   1      #if KS_CRITICAL_METHOD == 3
+                      KS_CPU_SR cpu_sr;
+              #endif
+ 718   1              void *preturn;
+ 719   1              KS_ENTER_CRITICAL();            /*½øÈëÁÙ½çÇø                    */
+ 720   1              preturn = malloc(size);         /*ÉêÇëÄÚ´æ                              */
+ 721   1              KS_EXIT_CRITICAL();             /*Àë¿ªÁÙ½çÇø                    */
+ 722   1              return preturn;                 /*·µ»ØÉêÇëµÄÄÚ´æÖ¸ÕëµØÖ·*/
+ 723   1      }
+ 724          
+ 725          void ks_free(void *pv)  reentrant
+ 726          {
+ 727   1      #if KS_CRITICAL_METHOD == 3
+                      KS_CPU_SR cpu_sr;
+              #endif
+ 730   1              if(pv)
+ 731   1              {
+ 732   2                      KS_ENTER_CRITICAL();            /*½øÈëÁÙ½çÇø    */
+ 733   2                      free(pv);                       /*ÊÍ·ÅÄÚ´æ              */
+ 734   2                      KS_EXIT_CRITICAL();             /*Àë¿ªÁÙ½çÇø    */
+ 735   2              }
+ 736   1      }
+ 737          
+ 738          
+ 739          
+ 740          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2514    ----
+   CONSTANT SIZE    =      5    ----
+   XDATA SIZE       =    294      10
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =     10    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)

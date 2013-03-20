@@ -1,0 +1,11 @@
+"main.obj",
+"ks_core.obj",
+"ks_cpu.obj",
+"ks_mutex.obj",
+"ks_queue.obj",
+"ks_sem.obj",
+"ks_thread.obj",
+"ks_cpu_a.obj",
+"STARTUP.obj" 
+TO "kingsky" 
+RAMSIZE(256) 

@@ -1,0 +1,340 @@
+C51 COMPILER V9.01   KS_THREAD                                                             06/05/2012 15:05:53 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE KS_THREAD
+OBJECT MODULE PLACED IN ks_thread.obj
+COMPILER INVOKED BY: E:\Keil\C51\BIN\C51.EXE uCosii\ks_thread.c LARGE BROWSE DEBUG OBJECTEXTEND PRINT(.\ks_thread.lst) O
+                    -BJECT(ks_thread.obj)
+
+line level    source
+
+   1          /*
+   2          *********************************************************************************************************
+   3          *                                               KingSky
+   4          *                                          实时操作系统内核
+   5          *
+   6          *                                       (c) Copyright 2011, 庄桐泉
+   7          *                                          All Rights Reserved
+   8          *
+   9          * File         : ks_thread.c
+  10          ********************************************************************************************************* 
+             -*/
+  11          #include "KingSky.h"
+  12          
+  13          
+  14          KS_HANDLE ks_thread_create(THREAD_ADDR thread_addr,
+  15                                                             const uint8 *const thread_name,
+  16                                                             void *p_arg,
+  17                                                             KS_STACK *stk,
+  18                                                             KS_BASE_TYPE prio) reentrant
+  19          {
+  20   1      #if KS_CRITICAL_METHOD == 3
+                      KS_CPU_SR cpu_sr;
+              #endif
+  23   1      
+  24   1              KS_STACK *stk1;
+  25   1              ks_thread_block *ptr;
+  26   1              uint8 err;
+  27   1      #if KS_RR_EN >0
+                      if(prio > KS_MAX_PRIO)            /*防止数组溢出，一定要控制好*/
+                      {
+                              prio = KS_MAX_PRIO - 1;
+                      }
+              #else
+  33   1              #if KS_CHECK_EN >0
+  34   1              if(prio > KS_MAX_PRIO)
+  35   1              {
+  36   2                      return(ks_thread_block*)(KS_PRIO_ERROR);
+  37   2              }
+  38   1              #endif
+  39   1      #endif
+  40   1              ptr  = ks_thread_allocate();                     /*申请一块空闲的线程                   */
+  41   1              stk1 = ks_stack_init (thread_addr,p_arg,stk);    /*线程堆栈进行初始化,返回任务堆栈的栈顶*/
+  42   1              err  = ks_thread_init(ptr,stk1,prio,thread_name);/*对申请的线程进行初始化               */
+  43   1              
+  44   1              if(err == KS_NOERR_THREAD_INIT)
+  45   1              {
+  46   2                      /*关中断,注意不要关中断的时间太长，太长影响实时性,中断响应时间*/
+  47   2                      KS_ENTER_CRITICAL();
+  48   2                      current_thread_number ++;                      /*线程数加一                                                     */
+  49   2                      if(current_thread_number == (KS_THREAD_NUM)1)  /*判断是否第一次创建线程             */
+  50   2                      {
+  51   3                              high_thread = ptr;
+  52   3                              current_running_priority = ptr->priority;  /*设置当前运行的优先级                               */
+  53   3                      }
+C51 COMPILER V9.01   KS_THREAD                                                             06/05/2012 15:05:53 PAGE 2   
+
+  54   2                      else                                           /*如果不是第一次创建线程                         */
+  55   2                      {
+  56   3                              if(ks_running == KS_FALSE)                              /*判断系统是否已经启动                          */ 
+  57   3                              {
+  58   4                                      if(current_thread->priority > ptr->priority)
+  59   4                                      {
+  60   5                                              high_thread = ptr;
+  61   5                                              current_running_priority = ptr->priority;/*更新current_running_priority的值*/
+  62   5                                      }
+  63   4                              }
+  64   3                      }
+  65   2                      if(top_readylist_priority > ptr->priority) 
+  66   2                      {
+  67   3                              top_readylist_priority = ptr->priority;          /*更新top_readylist_priority的值  */
+  68   3                      }
+  69   2                      ks_list_insertend((ks_list*)&readylist[ptr->priority],(ks_list_item*)&(ptr->insertlist_item));/*将线程插
+             -入到优先级就绪链表中*/
+  70   2      #if KS_RR_EN > 0
+                              if(readylist[ptr->priority].item_numbers > 1)
+                              {
+                                      readylist[ptr->priority].rr_flag = 1;            /*设置rr_flag标志                 */
+                              }
+              #else
+  76   2                      if(readylist[ptr->priority].item_numbers > 1)        /*如果系统不支持相同优先级            */
+  77   2                      {
+  78   3                              ks_item_remove((ks_list_item*)&(ptr->insertlist_item));
+  79   3                              ptr->thread_next = pfree_thread;                 /*收回资源                                 */
+  80   3                              pfree_thread = ptr;
+  81   3                              return(ks_thread_block*)(KS_PRIO_ERROR);
+  82   3                      }
+  83   2      #endif
+  84   2                      
+  85   2                      KS_EXIT_CRITICAL();
+  86   2                      if(ks_running == KS_TRUE)                                                       /*判断系统是否在运行                            */
+  87   2                      {
+  88   3                              if(current_thread->priority > ptr->priority)
+  89   3                              {
+  90   4                                      ks_schedule();                                                          /*进行调度                                                      */
+  91   4                              }
+  92   3                      
+  93   3                      }
+  94   2              }
+  95   1              else if(err == KS_ERR_THREAD_INIT)                                              /*线程初始化失败后的处理                        */
+  96   1              {
+  97   2              
+  98   2                      return(ks_thread_block*)(KS_PRIO_ERROR);                        /*失败处理                                                      */
+  99   2              }
+ 100   1              return ptr;
+ 101   1      }
+ 102          
+ 103          void ks_thread_delay(KS_TIME_TYPE ticks)  reentrant
+ 104          {
+ 105   1      #if KS_CRITICAL_METHOD == 3
+                      KS_CPU_SR cpu_sr;
+              #endif
+ 108   1              
+ 109   1              if(ticks >0)
+ 110   1              {
+ 111   2                      KS_ENTER_CRITICAL();
+ 112   2      #if KS_RR_EN >0                        /*是否支持相同优先级*/
+                              if(readylist[current_running_priority].item_numbers > (KS_BASE_TYPE)1)
+                              {
+C51 COMPILER V9.01   KS_THREAD                                                             06/05/2012 15:05:53 PAGE 3   
+
+                                      if(current_thread->insertlist_item.item_next->item_value == 0)/*运行的链表是否在链表的尾部*/
+                                      {
+                                              next_thread =(ks_thread_block*)current_thread->insertlist_item.item_next->item_next->owner;
+                                      }
+                                      else if(current_thread->insertlist_item.item_next->item_value > 0)
+                                      {
+                                              next_thread =(ks_thread_block*)current_thread->insertlist_item.item_next->owner;
+                                      }
+                              }
+              #endif
+ 125   2                      ks_item_remove((ks_list_item*)&current_thread->insertlist_item);/*将当前运行态的任务块节点从就绪链表中删
+             -除*/
+ 126   2                      
+ 127   2                                                                                                       /*将节点插入到延时链表中                          */
+ 128   2                      current_thread->thread_delay = ticks;    /*将ticks的值赋给thread_delay         */
+ 129   2                      current_thread->item_in_delaylist = 1;   /*标志正在运行的线程将插入到延时链表中*/
+ 130   2                      ks_list_insertend((ks_list*)&delaylist[0],(ks_list_item*)&current_thread->insertlist_item);
+ 131   2                      KS_EXIT_CRITICAL(); 
+ 132   2                      ks_schedule();                                           /*调度                                                            */
+ 133   2              }
+ 134   1                                                                                                      /*如果ticks等于0表示不延时,该任务继续执行*/     
+ 135   1      }
+ 136          
+ 137          void ks_thread_idle(void *pram)   reentrant
+ 138          {
+ 139   1              pram = pram;
+ 140   1      //      Uart_SendString("I am the idle\n");
+ 141   1              for(;;)//进去之后就再也没出来了
+ 142   1              {
+ 143   2                      //空闲任务空转
+ 144   2              }
+ 145   1      }
+ 146          
+ 147          #if KS_THREAD_SUSPEND_EN >0
+              
+              uint8 ks_thread_suspend(KS_HANDLE handle)
+              {
+              #if KS_CRITICAL_METHOD == 3
+                      KS_CPU_SR cpu_sr;
+              #endif
+                      uint8 self = FALSE;
+              #if KS_CHECK_EN > 0
+                      if(handle->thread_state & KS_STATE_SUSPEND > 0) /*判断要被挂起的线程是否应经被挂起 */
+                      {
+                              return (KS_THREAD_SUSPEND_AGAIN);
+                      }
+                      if(handle == (KS_HANDLE)KS_PRIO_ERROR)         /*判断要被挂起的线程是否正确                */
+                      {
+                              return (KS_THREAD_SUSPEND_ERROR);
+                      }
+                      if(handle == h_idle)                                                    /*判断被挂起的线程是否是空闲线程   */
+                      {
+                              return (KS_THREAD_SUSPEND_IDLE);
+                      }
+              #endif
+                      KS_ENTER_CRITICAL();
+                      
+                      if(handle == KS_THREAD_SELF)                                    /*判断被挂起的线程是否是正在运行的线程*/
+                      {
+                              self = TRUE;                                                            /*self置1                                                         */
+                              handle = current_thread;
+                      }
+C51 COMPILER V9.01   KS_THREAD                                                             06/05/2012 15:05:53 PAGE 4   
+
+                      else if( handle == current_thread)             /*判断被挂起的线程是否是正在运行的线程 */
+                      {
+                              self = TRUE;
+                      }
+                      if(handle->item_in_delaylist == 0)                        /*如果被删除的线程在就绪链表里                  */
+                      {
+                              ks_item_remove((ks_list_item*)&handle->insertlist_item);
+                              ks_list_insertend((ks_list*)&delaylist[0],(ks_list_item*)&handle->insertlist_item);
+                              handle->item_in_delaylist = 1;           /*标志被挂起的线程在延时链表里                   */
+                      }
+                      handle->thread_state |= KS_STATE_SUSPEND;    /*设置被挂起线程的状态为挂起态                       */
+                      KS_EXIT_CRITICAL();
+                      if(self == TRUE)                             /*如果被挂起的线程是正在运行的线程           */
+                      {
+                              ks_schedule();                                                   /*线程级别的调度                                                 */
+                      }
+                      return (KS_NO_ERROR);
+              }
+              #endif
+ 195          
+ 196          #if KS_THREAD_RESUME_EN > 0
+                      
+              uint8 ks_thread_resume(KS_HANDLE handle) reentrant
+              {
+              #if KS_CRITICAL_METHOD == 3
+                      KS_CPU_SR cpu_sr;
+              #endif
+              #if KS_CHECK_EN > 0
+                      if(handle == (KS_HANDLE)KS_PRIO_ERROR)            /*判断要被唤醒的线程是否正确   */
+                      {
+                              return (KS_THREAD_SUSPEND_ERROR);
+                      }
+              #endif
+                  KS_ENTER_CRITICAL();
+                  if((handle->thread_state & KS_STATE_SUSPEND) > 0)/*判断被唤醒的线程是否已经被挂起 */
+                  {
+                      handle->thread_state &= ~KS_STATE_SUSPEND;   /*取消线程被挂起的状态           */
+                      ks_item_remove((ks_list_item*)&handle->insertlist_item);
+                              ks_list_insertend((ks_list*)&readylist[handle->priority],(ks_list_item*)&handle->insertlist_item);
+                              handle->item_in_delaylist = 0;                          /*被唤醒的线程不在延时链表里      */
+                              KS_EXIT_CRITICAL();
+                              ks_schedule();                               /*调度                                                       */
+                  }
+                  else
+                  {
+                      KS_EXIT_CRITICAL();
+                  }
+                  return (KS_NO_ERROR);
+              
+              }
+              #endif
+ 227          
+ 228          #if KS_THREAD_CHANGE_PRIO > 0 //以后再完成
+              uint8 ks_thread_change_prio(KS_HANDLE handle,KS_BASE_TYPE new_prio) reentrant
+              {
+              #if KS_CRITICAL_METHOD == 3
+                      KS_CPU_SR cpu_sr;
+              #endif
+              #if KS_CHECK_EN >0
+                      if(handle == (KS_HANDLE)KS_PRIO_ERROR)
+                      {
+                              return (KS_PRIO_CHANGE_ERROR);
+C51 COMPILER V9.01   KS_THREAD                                                             06/05/2012 15:05:53 PAGE 5   
+
+                      }
+                      if(new_prio > KS_MAX_PRIO)
+                      {
+                              return(KS_PRIO_ERROR);
+                      }
+              #endif
+                      KS_ENTER_CRITICAL();
+                      if(handle == KS_THREAD_SELF) 
+                      {
+                              handle = current_thread;
+                      }
+                      
+                      //handle->priority = new_prio;
+                      
+              
+                      return (KS_NO_ERROR);
+              }
+              #endif
+ 256          
+ 257          #if KS_THREAD_CLOSE_EN > 0
+              uint8 ks_thread_close(KS_HANDLE handle)  reentrant
+              {
+              #if KS_CRITICAL_METHOD == 3
+                      KS_CPU_SR cpu_sr;
+              #endif
+                      if(int_nesting > 0)              /*确保中断内不能调用               */
+                      {
+                              return (KS_THREAD_DEL_ISR);  /*若在中断内调用，则返回错误标识符 */
+                      }
+              #if KS_CHECK_EN >0
+                      if(handle == (KS_HANDLE)KS_PRIO_ERROR)   /*确保要删除线程是存在的   */
+                      {
+                              return (KS_THREAD_DEL_ERROR);
+                      }
+                      if(handle == h_idle)                    /*确保删除的不是空闲任务    */
+                      {
+                              return(KS_THREAD_DEL_IDLE);
+                      }
+              #endif
+                      KS_ENTER_CRITICAL();
+                      if(handle == KS_THREAD_SELF)     /*允许删除自己                    */
+                      {
+                              handle = current_thread;     /*将当前运行线程块指针赋给handle  */
+                      }
+                      if(handle->thread_state != KS_STATE_FREE)    /*确保线程是存在的    */
+                      {
+                              ks_item_remove((ks_list_item*)&handle->insertlist_item);/*将线程块从就绪链表或延时链表中删除  */
+                              handle->thread_delay = 0;            /*将延时数清零，以确保自己重开中断后，ISR不再使该任务就绪*/
+                              current_thread_number--;             /*将任务数减1                                            */
+                              handle->thread_next = pfree_thread;  /*将被删除的线程控制块放回空闲链表中去以便被其它线程使用 */
+                              pfree_thread = handle;
+                              handle->thread_state = KS_STATE_FREE;/*空闲状态，可以被申请使用                               */
+                              KS_EXIT_CRITICAL();
+                              ks_schedule();
+                      }
+                      else
+                      {
+                              KS_EXIT_CRITICAL();
+                              return (KS_THREAD_DEL_ERROR);
+                      }
+                      
+                      return (KS_NO_ERROR);
+C51 COMPILER V9.01   KS_THREAD                                                             06/05/2012 15:05:53 PAGE 6   
+
+              }
+              #endif
+ 302          
+ 303          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    805    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

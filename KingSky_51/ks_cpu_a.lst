@@ -1,0 +1,317 @@
+A51 MACRO ASSEMBLER  KS_CPU_A                                                             06/05/2012 15:05:53 PAGE     1
+
+
+MACRO ASSEMBLER A51 V8.02
+OBJECT MODULE PLACED IN ks_cpu_a.obj
+ASSEMBLER INVOKED BY: E:\Keil\C51\BIN\A51.EXE uCosii\ks_cpu_a.asm SET(LARGE) DEBUG PRINT(.\ks_cpu_a.lst) OBJECT(ks_cpu_a
+                      .obj) EP
+
+LOC  OBJ            LINE     SOURCE
+
+                       1                                             ;**************************************************
+                             *******************************************************
+                       2     ;                                              KingSky
+                       3     ;                                          µ ±≤Ÿ◊˜œµÕ≥ƒ⁄∫À
+                       4     ;
+                       5     ;                                    (c) Copyright 2011£¨◊ØÕ©»™
+                       6     ;                                         All Rights Reserved
+                       7     ;
+                       8     ;                                               ARM920T Port
+                       9     ;                                            ADS v1.2 Compiler
+                      10     ;                                            Samsung S3C2440A
+                      11     ;
+                      12     ; Œƒº˛:   : os_cpu_a.s 
+                      13     ; CPU :   : S3C2440
+                      14     ; History : 
+                      15     ;  OSCtxSw(), OSIntCtxSw()  OSStartHighRdy() 
+                      16     ;******************************************************************************************
+                             ************** */
+                      17     
+                      18     $nomod51 
+  00AF                19     EA      BIT         0A8H.7
+  0081                20     SP      DATA    081H
+  00F0                21     B       DATA    0F0H
+  00E0                22     ACC     DATA    0E0H
+  0083                23     DPH     DATA    083H
+  0082                24     DPL     DATA    082H
+  00D0                25     PSW     DATA    0D0H
+  008C                26     TR0     BIT         088H.4
+  008C                27     TH0     DATA    08CH
+  008A                28     TL0     DATA    08AH
+                      29     
+                      30     NAME KS_CPU_A    ;ƒ£øÈ√˚
+                      31     ;∂®“Â÷ÿ∂®Œª∂Œ
+                      32     ?PR?ks_start_high?KS_CPU_A    SEGMENT CODE
+                      33     ?PR?ks_thread_sw?KS_CPU_A     SEGMENT CODE
+                      34     ?PR?ks_int_sw?KS_CPU_A        SEGMENT CODE
+                      35     
+                      36     ;…˘√˜“”√»´æ÷±‰¡ø∫ÕÕ‚≤ø◊”≥Ã–Ú
+                      37             EXTRN DATA  (?C_XBP)     ;∑¬’Ê∂—’ª÷∏’Î”√”⁄÷ÿ»Îæ÷≤ø±‰¡ø±£¥Ê,Œ™V2.51ƒ‹±ªC π”√∂®“Â‘⁄±æ
+                             ƒ£øÈ÷–
+                      38     
+                      39             EXTRN IDATA (current_thread)
+                      40             EXTRN IDATA (high_thread)
+                      41             EXTRN IDATA (ks_running)                                                           
+                                                                  
+                      42                                                      
+                      43     
+                      44      ;∂‘Õ‚…˘√˜4∏ˆ≤ªø…÷ÿ»Î∫Ø 
+                      45             PUBLIC ks_start_high
+                      46             PUBLIC ks_thread_sw
+                      47             PUBLIC ks_int_sw
+                      48                     ;∑÷≈‰∂—’ªø’º‰°£÷ªπÿ–ƒ¥Û–°£¨∂—’ª∆µ„”…keilæˆ∂®£¨Õ®π±Í∫≈ø…“‘ªÒµ√keil∑÷≈‰µƒSP∆
+                             µ„°£
+                      49     
+                      50     ?STACK SEGMENT IDATA
+----                  51             RSEG ?STACK
+0000                  52     OSStack:
+A51 MACRO ASSEMBLER  KS_CPU_A                                                             06/05/2012 15:05:53 PAGE     2
+
+0000                  53             DS 40H
+  FFFF                54     OSStkStart IDATA OSStack-1
+                      55     
+                      56     PUSHALL    MACRO        ;∂®“Â—π’ª≥ˆ’ª∫Í
+                      57             PUSH ACC
+                      58             PUSH B
+                      59             PUSH DPH
+                      60             PUSH DPL
+                      61             PUSH PSW
+                      62             MOV  A,R0   ;R0-R7»Î’ª
+                      63             PUSH ACC
+                      64             MOV  A,R1
+                      65             PUSH ACC
+                      66             MOV  A,R2
+                      67             PUSH ACC
+                      68             MOV  A,R3
+                      69             PUSH ACC
+                      70             MOV  A,R4
+                      71             PUSH ACC
+                      72             MOV  A,R5
+                      73             PUSH ACC
+                      74             MOV  A,R6
+                      75             PUSH ACC
+                      76             MOV  A,R7
+                      77             PUSH ACC
+                      78             ;PUSH SP    ;≤ª±ÿ±£¥ÊSP£¨»ŒŒÒ«–ªª ±”…œ‡”¶≥Ã–Úµ˜’˚
+                      79             ENDM
+                      80         
+                      81     POPALL    MACRO
+                      82             ;POP  ACC   ;≤ª±ÿ±£¥ÊSP£¨»ŒŒÒ«–ªª ±”…œ‡”¶≥Ã–Úµ˜’˚
+                      83             POP  ACC    ;R0-R7≥ˆ’ª
+                      84             MOV  R7,A
+                      85             POP  ACC
+                      86             MOV  R6,A
+                      87             POP  ACC
+                      88             MOV  R5,A
+                      89             POP  ACC
+                      90             MOV  R4,A
+                      91             POP  ACC
+                      92             MOV  R3,A
+                      93             POP  ACC
+                      94             MOV  R2,A
+                      95             POP  ACC
+                      96             MOV  R1,A
+                      97             POP  ACC
+                      98             MOV  R0,A
+                      99             POP  PSW
+                     100             POP  DPL
+                     101             POP  DPH
+                     102             POP  B
+                     103             POP  ACC
+                     104             ENDM
+                     105     ;◊”≥Ã–Ú
+                     106     ;-------------------------------------------------------------------------
+----                 107             RSEG ?PR?ks_start_high?KS_CPU_A
+0000                 108     ks_start_high:
+                     109             USING 0    ;…œµÁ∫Û51◊‘∂Øπÿ÷–∂œ£¨¥À¥¶≤ª±ÿ”√CLR EA÷∏¡Ó£¨“ÚŒ™µΩ¥À¥¶ªπŒ¥ø™÷–∂œ£¨±æ≥Ã–ÚÕ
+                             À≥ˆ∫Û£¨ø™÷–∂œ°£
+0000                 110     OSCtxSw_in:
+                     111                      ;OSRunning=TRUE
+0000 7800     F      112             MOV  R0,#LOW (ks_running)
+0002 7601            113             MOV  @R0,#01
+                     114             ;OSTCBCur ===> DPTR  ªÒµ√µ±«∞TCB÷∏’Î£¨œÍº˚C51.PDFµ⁄178“≥
+0004 7800     F      115             MOV  R0,#LOW (current_thread) ;ªÒµ√OSTCBCur÷∏’ÎµÕµÿ÷∑£¨÷∏’Î’º3◊÷Ω⁄°£+0¿‡–Õ+1∏ﬂ8Œª æ
+                             ›+2µÕ8Œª æ›
+0006 08              116             INC  R0
+A51 MACRO ASSEMBLER  KS_CPU_A                                                             06/05/2012 15:05:53 PAGE     3
+
+0007 8683            117             MOV  DPH,@R0    ;»´æ÷±‰¡øOSTCBCur‘⁄IDATA÷–
+0009 08              118             INC  R0
+000A 8682            119             MOV  DPL,@R0
+                     120         
+                     121             ;OSTCBCur->OSTCBStkPtr ===> DPTR  ªÒµ√”√ªß∂—’ª÷∏’Î
+000C A3              122             INC  DPTR        ;÷∏’Î’º3◊÷Ω⁄°£+0¿‡–Õ+1∏ﬂ8Œª æ›+2µÕ8Œª æ›
+000D E0              123             MOVX A,@DPTR     ;.OSTCBStkPtr «void÷∏’Î
+000E F8              124             MOV  R0,A
+000F A3              125             INC  DPTR
+0010 E0              126             MOVX A,@DPTR
+0011 F9              127             MOV  R1,A
+0012 8883            128             MOV  DPH,R0
+0014 8982            129             MOV  DPL,R1
+                     130         
+                     131             ;*UserStkPtr ===> R5  ”√ªß∂—’ª∆ ºµÿ÷∑ƒ⁄»›(º¥”√ªß∂—’ª≥§∂»∑≈‘⁄¥À¥¶)  œÍº˚ŒƒµµÀµ√˜  ÷
+                             ∏’Î”√∑®œÍº˚C51.PDFµ⁄178“≥    
+0016 E0              132             MOVX A,@DPTR     ;”√ªß∂—’ª÷– «unsigned char¿‡–Õ æ›
+0017 FD              133             MOV  R5,A        ;R5=”√ªß∂—’ª≥§∂»
+                     134           ;  MOV  R5,#15    
+                     135             ;ª÷∏¥œ÷≥°∂—’ªƒ⁄»›
+0018 7800     F      136             MOV  R0,#OSStkStart
+                     137             
+001A                 138     restore_stack:
+                     139         
+001A A3              140             INC  DPTR
+001B 08              141             INC  R0
+001C E0              142             MOVX A,@DPTR
+001D F6              143             MOV  @R0,A
+001E DDFA            144             DJNZ R5,restore_stack
+                     145         
+                     146             ;ª÷∏¥∂—’ª÷∏’ÎSP
+0020 8881            147             MOV  SP,R0
+                     148         
+                     149             ;ª÷∏¥∑¬’Ê∂—’ª÷∏’Î?C_XBP        
+0022 A3              150             INC  DPTR
+0023 E0              151             MOVX A,@DPTR
+0024 F500     F      152             MOV  ?C_XBP,A    ;?C_XBP ∑¬’Ê∂—’ª÷∏’Î∏ﬂ8Œª
+0026 A3              153             INC  DPTR
+0027 E0              154             MOVX A,@DPTR
+0028 F500     F      155             MOV  ?C_XBP+1,A  ;?C_XBP ∑¬’Ê∂—’ª÷∏’ÎµÕ8Œª
+                     156         
+                     157            
+                     158         
+                     159             POPALL
+004C D2AF            182             SETB EA    ;ø™÷–∂œ
+004E 32              183             RETI
+                     184                     
+                     185                     ;-------------------------------------------------------------------------
+----                 186             RSEG ?PR?ks_thread_sw?KS_CPU_A
+0000                 187     ks_thread_sw:  
+                     188             USING 0  
+                     189             PUSHALL
+0022                 212     OSIntCtxSw_in:
+                     213         
+                     214             ;ªÒµ√∂—’ª≥§∂»∫Õ∆÷∑
+0022 E581            215             MOV  A,SP
+0024 C3              216             CLR  C
+0025 9400     F      217             SUBB A,#OSStkStart
+0027 FD              218             MOV  R5,A     ;ªÒµ√∂—’ª≥§∂»        
+                     219         
+                     220             ;OSTCBCur ===> DPTR  ªÒµ√µ±«∞TCB÷∏’Î£¨œÍº˚C51.PDFµ⁄178“≥
+0028 7800     F      221             MOV  R0,#LOW (current_thread) ;ªÒµ√OSTCBCur÷∏’ÎµÕµÿ÷∑£¨÷∏’Î’º3◊÷Ω⁄°£+0¿‡–Õ+1∏ﬂ8Œª æ
+                             ›+2µÕ8Œª æ›
+002A 08              222             INC  R0
+002B 8683            223             MOV  DPH,@R0    ;»´æ÷±‰¡øOSTCBCur‘⁄IDATA÷–
+002D 08              224             INC  R0
+A51 MACRO ASSEMBLER  KS_CPU_A                                                             06/05/2012 15:05:53 PAGE     4
+
+002E 8682            225             MOV  DPL,@R0
+                     226         
+                     227             ;OSTCBCur->OSTCBStkPtr ===> DPTR  ªÒµ√”√ªß∂—’ª÷∏’Î
+0030 A3              228             INC  DPTR        ;÷∏’Î’º3◊÷Ω⁄°£+0¿‡–Õ+1∏ﬂ8Œª æ›+2µÕ8Œª æ›
+0031 E0              229             MOVX A,@DPTR     ;.OSTCBStkPtr «void÷∏’Î
+0032 F8              230             MOV  R0,A
+0033 A3              231             INC  DPTR
+0034 E0              232             MOVX A,@DPTR
+0035 F9              233             MOV  R1,A
+0036 8883            234             MOV  DPH,R0
+0038 8982            235             MOV  DPL,R1
+                     236             
+                     237             ;±£¥Ê∂—’ª≥§∂»
+003A ED              238             MOV  A,R5
+003B F0              239             MOVX @DPTR,A
+                     240         
+003C 7800     F      241             MOV  R0,#OSStkStart  ;ªÒµ√∂—’ª∆÷∑
+003E                 242     save_stack:
+                     243         
+003E A3              244             INC  DPTR
+003F 08              245             INC  R0
+0040 E6              246             MOV  A,@R0
+0041 F0              247             MOVX @DPTR,A
+0042 DDFA            248             DJNZ R5,save_stack
+                     249             
+                     250             ;±£¥Ê∑¬’Ê∂—’ª÷∏’Î?C_XBP
+0044 A3              251             INC  DPTR
+0045 E500     F      252             MOV  A,?C_XBP    ;?C_XBP ∑¬’Ê∂—’ª÷∏’Î∏ﬂ8Œª
+0047 F0              253             MOVX @DPTR,A
+0048 A3              254             INC  DPTR
+0049 E500     F      255             MOV  A,?C_XBP+1  ;?C_XBP ∑¬’Ê∂—’ª÷∏’ÎµÕ8Œª
+004B F0              256             MOVX @DPTR,A        
+                     257         
+                     258             
+                     259             ;OSTCBCur = OSTCBHighRdy
+004C 7800     F      260             MOV  R0,#current_thread
+004E 7900     F      261                     MOV  R1,#high_thread
+0050 E7              262                     MOV  A,@R1
+0051 F6              263             MOV  @R0,A
+0052 08              264             INC  R0
+0053 09              265                     INC  R1
+0054 E7              266                     MOV  A,@R1
+0055 F6              267             MOV  @R0,A
+0056 08              268             INC  R0
+0057 09              269                     INC  R1
+0058 E7              270                     MOV  A,@R1
+0059 F6              271             MOV  @R0,A               
+                     272             
+005A 020000   F      273             LJMP OSCtxSw_in 
+----                 274     RSEG ?PR?ks_int_sw?KS_CPU_A
+0000                 275     ks_int_sw:
+                     276     
+                     277             ;µ˜’˚SP÷∏’Î»•µÙ‘⁄µ˜”√OSIntExit(),OSIntCtxSw()π≥Ã÷–—π»Î∂—’ªµƒ∂‡”‡ƒ⁄»›
+                     278             ;SP=SP-4
+                     279                      USING 0 
+0000 E581            280             MOV  A,SP
+0002 C3              281             CLR  C
+0003 9404            282             SUBB A,#4
+0005 F581            283             MOV  SP,A
+                     284             
+0007 020000   F      285             LJMP OSIntCtxSw_in
+                     286                             
+                     287             END
+                                     
+                                     
+                                     
+A51 MACRO ASSEMBLER  KS_CPU_A                                                             06/05/2012 15:05:53 PAGE     5
+
+                             
+                             
+A51 MACRO ASSEMBLER  KS_CPU_A                                                             06/05/2012 15:05:53 PAGE     6
+
+SYMBOL TABLE LISTING
+------ ----- -------
+
+
+N A M E                     T Y P E  V A L U E   ATTRIBUTES
+
+?C_XBP . . . . . . . . . .  D ADDR   -----       EXT
+?PR?KS_INT_SW?KS_CPU_A . .  C SEG    000AH       REL=UNIT
+?PR?KS_START_HIGH?KS_CPU_A  C SEG    004FH       REL=UNIT
+?PR?KS_THREAD_SW?KS_CPU_A.  C SEG    005DH       REL=UNIT
+?STACK . . . . . . . . . .  I SEG    0040H       REL=UNIT
+ACC. . . . . . . . . . . .  D ADDR   00E0H   A   
+B. . . . . . . . . . . . .  D ADDR   00F0H   A   
+CURRENT_THREAD . . . . . .  I ADDR   -----       EXT
+DPH. . . . . . . . . . . .  D ADDR   0083H   A   
+DPL. . . . . . . . . . . .  D ADDR   0082H   A   
+EA . . . . . . . . . . . .  B ADDR   00A8H.7 A   
+HIGH_THREAD. . . . . . . .  I ADDR   -----       EXT
+KS_CPU_A . . . . . . . . .  N NUMB   -----       
+KS_INT_SW. . . . . . . . .  C ADDR   0000H   R   SEG=?PR?KS_INT_SW?KS_CPU_A
+KS_RUNNING . . . . . . . .  I ADDR   -----       EXT
+KS_START_HIGH. . . . . . .  C ADDR   0000H   R   SEG=?PR?KS_START_HIGH?KS_CPU_A
+KS_THREAD_SW . . . . . . .  C ADDR   0000H   R   SEG=?PR?KS_THREAD_SW?KS_CPU_A
+OSCTXSW_IN . . . . . . . .  C ADDR   0000H   R   SEG=?PR?KS_START_HIGH?KS_CPU_A
+OSINTCTXSW_IN. . . . . . .  C ADDR   0022H   R   SEG=?PR?KS_THREAD_SW?KS_CPU_A
+OSSTACK. . . . . . . . . .  I ADDR   0000H   R   SEG=?STACK
+OSSTKSTART . . . . . . . .  I ADDR   FFFFH   R   SEG=?STACK
+PSW. . . . . . . . . . . .  D ADDR   00D0H   A   
+RESTORE_STACK. . . . . . .  C ADDR   001AH   R   SEG=?PR?KS_START_HIGH?KS_CPU_A
+SAVE_STACK . . . . . . . .  C ADDR   003EH   R   SEG=?PR?KS_THREAD_SW?KS_CPU_A
+SP . . . . . . . . . . . .  D ADDR   0081H   A   
+TH0. . . . . . . . . . . .  D ADDR   008CH   A   
+TL0. . . . . . . . . . . .  D ADDR   008AH   A   
+TR0. . . . . . . . . . . .  B ADDR   0088H.4 A   
+
+
+REGISTER BANK(S) USED: 0 
+
+
+ASSEMBLY COMPLETE.  0 WARNING(S), 0 ERROR(S)
